@@ -524,7 +524,6 @@ open class BarLineChartViewBase: ChartViewBase, BarLineScatterCandleBubbleChartD
     private var _gestureScaleAxis = GestureScaleAxis.both
     private var _closestDataSetToTouch: IChartDataSet!
     private var _panGestureReachedEdge: Bool = false
-    private weak var _outerScrollView: NSUIScrollView?
     
     private var _lastPanPoint = CGPoint() /// This is to prevent using setTranslation which resets velocity
     
@@ -680,9 +679,33 @@ open class BarLineChartViewBase: ChartViewBase, BarLineScatterCandleBubbleChartD
         }
     }
     #endif
-    
+    private var outerScrollViewIsScrolling: Bool {
+        var scrollView = self.superview
+        while scrollView != nil && !(scrollView is NSUIScrollView) {
+            scrollView = scrollView?.superview
+        }
+        
+        // If there is two scrollview together, we pick the superview of the inner scrollview.
+        // In the case of UITableViewWrepperView, the superview will be UITableView
+        if let superViewOfScrollView = scrollView?.superview,
+            superViewOfScrollView is NSUIScrollView
+        {
+            scrollView = superViewOfScrollView
+        }
+
+        if let foundScrollView = scrollView as? NSUIScrollView {
+            return foundScrollView.isDragging || foundScrollView.isDecelerating
+        }
+        return false
+    }
+    private var _startPanPoint: CGPoint = .zero
     @objc private func panGestureRecognized(_ recognizer: NSUIPanGestureRecognizer)
     {
+        if outerScrollViewIsScrolling {
+            recognizer.isEnabled = false
+            recognizer.isEnabled = true
+            return
+        }
         if recognizer.state == NSUIGestureRecognizerState.began && recognizer.nsuiNumberOfTouches() > 0
         {
             stopDeceleration()
@@ -695,10 +718,7 @@ open class BarLineChartViewBase: ChartViewBase, BarLineScatterCandleBubbleChartD
             // If drag is enabled and we are in a position where there's something to drag:
             //  * If we're zoomed in, then obviously we have something to drag.
             //  * If we have a drag offset - we always have something to drag
-            if !self.hasNoDragOffset || !self.isFullyZoomedOut
-            {
-                _isDragging = true
-                
+            if !self.hasNoDragOffset || !self.isFullyZoomedOut {
                 _closestDataSetToTouch = getDataSetByTouchPoint(point: recognizer.nsuiLocationOfTouch(0, inView: self))
                 
                 var translation = recognizer.translation(in: self)
@@ -713,26 +733,8 @@ open class BarLineChartViewBase: ChartViewBase, BarLineScatterCandleBubbleChartD
                 
                 let didUserDrag = translation.x != 0.0 || translation.y != 0.0
                 
-                // Check to see if user dragged at all and if so, can the chart be dragged by the given amount
-                if didUserDrag && !performPanChange(translation: translation)
-                {
-                    if _outerScrollView !== nil
-                    {
-                        // We can stop dragging right now, and let the scroll view take control
-                        _outerScrollView = nil
-                        _isDragging = false
-                    }
-                }
-                else
-                {
-                    if _outerScrollView !== nil
-                    {
-                        // Prevent the parent scroll view from scrolling
-                        _outerScrollView?.nsuiIsScrollEnabled = false
-                    }
-                }
-                
                 _lastPanPoint = recognizer.translation(in: self)
+                _startPanPoint = _lastPanPoint
             }
             else if self.isHighlightPerDragEnabled
             {
@@ -743,9 +745,15 @@ open class BarLineChartViewBase: ChartViewBase, BarLineScatterCandleBubbleChartD
         }
         else if recognizer.state == NSUIGestureRecognizerState.changed
         {
+            let originalTranslation = recognizer.translation(in: self)
+            if (!_isDragging && abs(_startPanPoint.x - originalTranslation.x) >= 8) {
+                _isDragging = true
+                _lastPanPoint = originalTranslation
+                return
+            }
+            
             if _isDragging
             {
-                let originalTranslation = recognizer.translation(in: self)
                 var translation = CGPoint(x: originalTranslation.x - _lastPanPoint.x, y: originalTranslation.y - _lastPanPoint.y)
                 
                 if !self.dragXEnabled
@@ -792,12 +800,6 @@ open class BarLineChartViewBase: ChartViewBase, BarLineScatterCandleBubbleChartD
                 _isDragging = false
                 
                 delegate?.chartViewDidEndPanning?(self)
-            }
-            
-            if _outerScrollView !== nil
-            {
-                _outerScrollView?.nsuiIsScrollEnabled = true
-                _outerScrollView = nil
             }
         }
     }
@@ -933,51 +935,9 @@ open class BarLineChartViewBase: ChartViewBase, BarLineScatterCandleBubbleChartD
     
     open func gestureRecognizer(_ gestureRecognizer: NSUIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: NSUIGestureRecognizer) -> Bool
     {
-        #if !os(tvOS)
-        if ((gestureRecognizer is NSUIPinchGestureRecognizer && otherGestureRecognizer is NSUIPanGestureRecognizer) ||
-            (gestureRecognizer is NSUIPanGestureRecognizer && otherGestureRecognizer is NSUIPinchGestureRecognizer))
-        {
+        if (gestureRecognizer == _panGestureRecognizer && _panGestureRecognizer.state != .changed) {
             return true
         }
-        #endif
-        
-        if gestureRecognizer is NSUIPanGestureRecognizer,
-            otherGestureRecognizer is NSUIPanGestureRecognizer,
-            gestureRecognizer == _panGestureRecognizer
-        {
-            var scrollView = self.superview
-            while scrollView != nil && !(scrollView is NSUIScrollView)
-            {
-                scrollView = scrollView?.superview
-            }
-            
-            // If there is two scrollview together, we pick the superview of the inner scrollview.
-            // In the case of UITableViewWrepperView, the superview will be UITableView
-            if let superViewOfScrollView = scrollView?.superview,
-                superViewOfScrollView is NSUIScrollView
-            {
-                scrollView = superViewOfScrollView
-            }
-
-            var foundScrollView = scrollView as? NSUIScrollView
-            
-            if !(foundScrollView?.nsuiIsScrollEnabled ?? true)
-            {
-                foundScrollView = nil
-            }
-            
-            let scrollViewPanGestureRecognizer = foundScrollView?.nsuiGestureRecognizers?.first {
-                $0 is NSUIPanGestureRecognizer
-            }
-            
-            if otherGestureRecognizer === scrollViewPanGestureRecognizer
-            {
-                _outerScrollView = foundScrollView
-                
-                return true
-            }
-        }
-        
         return false
     }
     
@@ -1287,7 +1247,7 @@ open class BarLineChartViewBase: ChartViewBase, BarLineScatterCandleBubbleChartD
 
     /// Centers the viewport to the specified y-value on the y-axis.
     /// This also refreshes the chart by calling setNeedsDisplay().
-    /// 
+    ///
     /// - Parameters:
     ///   - yValue:
     ///   - axis: - which axis should be used as a reference for the y-axis
@@ -1307,7 +1267,7 @@ open class BarLineChartViewBase: ChartViewBase, BarLineScatterCandleBubbleChartD
 
     /// This will move the left side of the current viewport to the specified x-value on the x-axis, and center the viewport to the specified y-value on the y-axis.
     /// This also refreshes the chart by calling setNeedsDisplay().
-    /// 
+    ///
     /// - Parameters:
     ///   - xValue:
     ///   - yValue:
@@ -1674,7 +1634,7 @@ open class BarLineChartViewBase: ChartViewBase, BarLineScatterCandleBubbleChartD
     
     /// If set to true, highlighting per dragging over a fully zoomed out chart is enabled
     /// You might want to disable this when using inside a `NSUIScrollView`
-    /// 
+    ///
     /// **default**: true
     @objc open var isHighlightPerDragEnabled: Bool
     {
@@ -1967,3 +1927,5 @@ open class BarLineChartViewBase: ChartViewBase, BarLineScatterCandleBubbleChartD
         return min(xAxis._axisMaximum, Double(pt.x))
     }
 }
+
+
