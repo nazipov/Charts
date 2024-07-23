@@ -19,7 +19,7 @@ import AppKit
 
 
 /// Base class of PieChartView and RadarChartView.
-open class PieRadarChartViewBase: ChartViewBase
+open class PieRadarChartViewBase: ChartViewBase, NSUIGestureRecognizerDelegate
 {
     /// holds the normalized version of the current rotation angle of the chart
     private var _rotationAngle = CGFloat(270.0)
@@ -36,9 +36,12 @@ open class PieRadarChartViewBase: ChartViewBase
     /// iOS && OSX only: Enabled multi-touch rotation using two fingers.
     private var _rotationWithTwoFingers = false
     
+    private var _rotationWithOneFinger = false
+    
     private var _tapGestureRecognizer: NSUITapGestureRecognizer!
     #if !os(tvOS)
     private var _rotationGestureRecognizer: NSUIRotationGestureRecognizer!
+    private var _panGestureRecognizer: NSUIPanGestureRecognizer!
     #endif
     
     public override init(frame: CGRect)
@@ -68,6 +71,11 @@ open class PieRadarChartViewBase: ChartViewBase
         _rotationGestureRecognizer = NSUIRotationGestureRecognizer(target: self, action: #selector(rotationGestureRecognized(_:)))
         self.addGestureRecognizer(_rotationGestureRecognizer)
         _rotationGestureRecognizer.isEnabled = rotationWithTwoFingers
+        
+        _panGestureRecognizer = NSUIPanGestureRecognizer(target: self, action: #selector(panGestureRecognized(_:)))
+        self.addGestureRecognizer(_panGestureRecognizer)
+        _panGestureRecognizer.isEnabled = rotationWithOneFinger
+        _panGestureRecognizer.delegate = self
         #endif
     }
     
@@ -343,7 +351,7 @@ open class PieRadarChartViewBase: ChartViewBase
         }
     }
     
-    /// gets the raw version of the current rotation angle of the pie chart the returned value could be any value, negative or positive, outside of the 360 degrees. 
+    /// gets the raw version of the current rotation angle of the pie chart the returned value could be any value, negative or positive, outside of the 360 degrees.
     /// this is used when working with rotation direction, mainly by gestures and animations.
     @objc open var rawRotationAngle: CGFloat
     {
@@ -397,7 +405,7 @@ open class PieRadarChartViewBase: ChartViewBase
     ///
     /// On iOS this will disable one-finger rotation.
     /// On OSX this will keep two-finger multitouch rotation, and one-pointer mouse rotation.
-    /// 
+    ///
     /// **default**: false
     @objc open var rotationWithTwoFingers: Bool
     {
@@ -410,6 +418,21 @@ open class PieRadarChartViewBase: ChartViewBase
             _rotationWithTwoFingers = newValue
             #if !os(tvOS)
             _rotationGestureRecognizer.isEnabled = _rotationWithTwoFingers
+            #endif
+        }
+    }
+    
+    @objc open var rotationWithOneFinger: Bool
+    {
+        get
+        {
+            return _rotationWithOneFinger
+        }
+        set
+        {
+            _rotationWithOneFinger = newValue
+            #if !os(tvOS)
+            _panGestureRecognizer.isEnabled = _rotationWithOneFinger
             #endif
         }
     }
@@ -852,4 +875,76 @@ open class PieRadarChartViewBase: ChartViewBase
         }
     }
     #endif
+    
+    // MARK: - PanGesture
+    
+    private var outerScrollViewIsScrolling: Bool {
+        var scrollView = self.superview
+        while scrollView != nil && !(scrollView is NSUIScrollView) {
+            scrollView = scrollView?.superview
+        }
+        
+        // If there is two scrollview together, we pick the superview of the inner scrollview.
+        // In the case of UITableViewWrepperView, the superview will be UITableView
+        if let superViewOfScrollView = scrollView?.superview,
+            superViewOfScrollView is NSUIScrollView
+        {
+            scrollView = superViewOfScrollView
+        }
+
+        if let foundScrollView = scrollView as? NSUIScrollView {
+            return foundScrollView.isDragging || foundScrollView.isDecelerating
+        }
+        return false
+    }
+    
+    fileprivate var startRotationAngle: CGFloat = 0
+    @objc private func panGestureRecognized(_ recognizer: NSUIPanGestureRecognizer) {
+        if outerScrollViewIsScrolling {
+            recognizer.isEnabled = false
+            recognizer.isEnabled = true
+            return
+        }
+        
+        let translation = recognizer.translation(in: self)
+        
+        if recognizer.state == NSUIGestureRecognizerState.began
+        {
+            stopDeceleration()
+            _startAngle = self.rawRotationAngle
+        }
+        
+        let location = recognizer.location(in: self)
+        let gestureRotation = CGFloat(angle(from: location)) - startRotationAngle
+        switch recognizer.state {
+        case .began:
+            // set the start angle of rotation
+            startRotationAngle = angle(from: location)
+        case .changed:
+            self.rotationAngle = _startAngle - gestureRotation
+            setNeedsDisplay()
+        case .ended:
+            // update the amount of rotation
+            self.rotationAngle = _startAngle - gestureRotation
+            setNeedsDisplay()
+        default :
+            break
+        }
+    }
+    
+    func angle(from location: CGPoint) -> CGFloat {
+       let deltaY = location.y - self.center.y
+       let deltaX = location.x - self.center.x
+       let angle = atan2(deltaY, deltaX) * 180 / .pi
+       return angle < 0 ? abs(angle) : 360 - angle
+   }
+    
+    open func gestureRecognizer(_ gestureRecognizer: NSUIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: NSUIGestureRecognizer) -> Bool
+    {
+        if let pan = gestureRecognizer as? UIPanGestureRecognizer {
+            let velocity = pan.velocity(in: self)
+            return fabs(velocity.x) < fabs(velocity.y)
+        }
+        return false
+    }
 }
