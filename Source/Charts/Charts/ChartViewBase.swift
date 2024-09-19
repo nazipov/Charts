@@ -91,6 +91,9 @@ open class ChartViewBase: NSUIView, ChartDataProvider, AnimatorDelegate
     /// delegate to receive chart events
     @objc open weak var delegate: ChartViewDelegate?
     
+    /// image that is displayed when the chart is empty
+    @objc open var noDataImage: UIImage?
+    
     /// text that is displayed when the chart is empty
     @objc open var noDataText = "No chart data available."
     
@@ -319,9 +322,43 @@ open class ChartViewBase: NSUIView, ChartDataProvider, AnimatorDelegate
         guard let context = optionalContext else { return }
         
         let frame = self.bounds
+        if _data === nil, noDataText.count > 0, let image = self.noDataImage {
+            
+            let emptyImageSideSize: CGFloat = 68
+            let emptyImageTopInset: CGFloat = 66
+            let emptyTextTopInset: CGFloat = 18
+            
+            ChartUtils.drawImage(
+                context: context,
+                image: image,
+                x: bounds.width / 2.0, 
+                y: emptyImageTopInset + emptyImageTopInset + emptyTextTopInset,
+                size: CGSize(width: emptyImageSideSize, height: emptyImageSideSize)
+            )
+            
+            let paragraphStyle = NSMutableParagraphStyle.default.mutableCopy() as! NSMutableParagraphStyle
+            paragraphStyle.minimumLineHeight = noDataFont.lineHeight
+            paragraphStyle.lineBreakMode = .byWordWrapping
+            paragraphStyle.alignment = noDataTextAlignment
 
-        if _data === nil && noDataText.count > 0
-        {
+            ChartUtils.drawMultilineText(
+                context: context,
+                text: noDataText,
+                point: CGPoint(
+                    x: bounds.width / 2.0,
+                    y: emptyImageTopInset + emptyImageTopInset + emptyTextTopInset
+                ),
+                attributes:
+                [.font: noDataFont,
+                 .foregroundColor: noDataTextColor,
+                 .paragraphStyle: paragraphStyle],
+                constrainedToSize: self.bounds.size,
+                anchor: CGPoint(x: 0.5, y: 0.5),
+                angleRadians: 0.0)
+            
+            return
+            
+        } else if _data === nil && noDataText.count > 0 {
             context.saveGState()
             defer { context.restoreGState() }
 
