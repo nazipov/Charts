@@ -332,7 +332,7 @@ open class ChartViewBase: NSUIView, ChartDataProvider, AnimatorDelegate
                 context: context,
                 image: image,
                 x: bounds.width / 2.0, 
-                y: emptyImageTopInset + emptyImageTopInset + emptyTextTopInset,
+                y: emptyImageTopInset,
                 size: CGSize(width: emptyImageSideSize, height: emptyImageSideSize)
             )
             
