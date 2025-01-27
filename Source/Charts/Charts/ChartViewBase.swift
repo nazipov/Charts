@@ -348,7 +348,7 @@ open class ChartViewBase: NSUIView, ChartDataProvider, AnimatorDelegate
                 text: noDataText,
                 point: CGPoint(
                     x: bounds.width / 2.0,
-                    y: emptyImageTopInset + emptyImageTopInset + emptyTextTopInset
+                    y: emptyImageTopInset + emptyImageSideSize + emptyTextTopInset
                 ),
                 attributes:
                 [.font: noDataFont,
