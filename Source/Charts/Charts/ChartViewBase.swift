@@ -94,6 +94,8 @@ open class ChartViewBase: NSUIView, ChartDataProvider, AnimatorDelegate
     /// image that is displayed when the chart is empty
     @objc open var noDataImage: UIImage?
     
+    @objc open var customEmptyDataTopInset: CGFloat = 0
+    
     /// text that is displayed when the chart is empty
     @objc open var noDataText = "No chart data available."
     
@@ -325,7 +327,7 @@ open class ChartViewBase: NSUIView, ChartDataProvider, AnimatorDelegate
         if _data === nil, noDataText.count > 0, let image = self.noDataImage {
             
             let emptyImageSideSize: CGFloat = 68
-            let emptyImageTopInset: CGFloat = 66
+            let emptyImageTopInset: CGFloat = self.customEmptyDataTopInset > 0 ? self.customEmptyDataTopInset : 66
             let emptyTextTopInset: CGFloat = 18
             
             ChartUtils.drawImage(
